@@ -39,7 +39,6 @@ export class DiredPanel {
     );
 
     const diredPanel = new DiredPanel(panel, extensionUri, cwd);
-    // diredPanel._cwd = cwd;
     diredPanel._focusedFile = activeFilePath ?? null;
     DiredPanel.currentPanel = diredPanel;
   }
@@ -56,194 +55,7 @@ export class DiredPanel {
     this._update();
 
     this._panel.webview.onDidReceiveMessage(
-      async (message) => {
-        const target = path.join(this._cwd, message?.path || "");
-
-        switch (message.command) {
-          case "delete":
-            await vscode.workspace.fs.delete(vscode.Uri.file(target));
-            this._update();
-            break;
-          case "open": {
-            const { path: msgPath, cursorIndex } = message;
-            if (cursorIndex !== undefined) {
-              this._cursorMap[this._cwd] = cursorIndex;
-            }
-
-            if (msgPath === "..") {
-              const root =
-                vscode.workspace.workspaceFolders?.[0].uri.fsPath || "";
-              if (this._cwd !== root) {
-                this._cwd = path.dirname(this._cwd);
-                this._update();
-              }
-              return;
-            }
-            const stat = await vscode.workspace.fs.stat(
-              vscode.Uri.file(target)
-            );
-            if (stat.type === vscode.FileType.Directory) {
-              this._cwd = target;
-              this._update();
-            } else {
-              vscode.commands.executeCommand(
-                "vscode.open",
-                vscode.Uri.file(target)
-              );
-            }
-            break;
-          }
-          case "reload": {
-            this._update();
-            break;
-          }
-          case "confirmDelete": {
-            const confirmed = await vscode.window.showWarningMessage(
-              `Are you sure you want to delete ${message.path}?`,
-              { modal: true },
-              "Delete"
-            );
-            if (confirmed === "Delete") {
-              const target = path.join(this._cwd, message.path);
-              await vscode.workspace.fs.delete(vscode.Uri.file(target));
-              this._update();
-            }
-            break;
-          }
-          case "requestRename": {
-            const newName = await vscode.window.showInputBox({
-              prompt: `Rename ${message.path} to:`,
-              value: message.path,
-            });
-            if (newName && newName !== message.path) {
-              const oldPath = path.join(this._cwd, message.path);
-              const newPath = path.join(this._cwd, newName);
-              await vscode.workspace.fs.rename(
-                vscode.Uri.file(oldPath),
-                vscode.Uri.file(newPath)
-              );
-              this._update();
-            }
-            break;
-          }
-          case "expand": {
-            const absPath = path.join(this._cwd, message.path);
-            const entries = await vscode.workspace.fs.readDirectory(
-              vscode.Uri.file(absPath)
-            );
-
-            const detailed = await Promise.all(
-              entries.map(([name, type]) =>
-                getFileEntryInfo(absPath, [name, type])
-              )
-            );
-
-            const items = detailed
-              .map(({ name, type, mode, size, mtime }, index) => {
-                const typeChar = type === vscode.FileType.Directory ? "d" : "-";
-                const display = `${typeChar}${mode.padEnd(
-                  4
-                )} ${size} ${mtime}          ${
-                  index === detailed.length - 1 ? "└──" : "├──"
-                } ${name}`;
-                const isHidden = name.startsWith(".");
-                const className = [
-                  isHidden ? "hidden-file" : "",
-                  type === vscode.FileType.Directory ? "directory" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-
-                return `<li tabindex="0" class="${className}" data-path="${message.path}/${name}" data-type="${type}" style="padding-left: 0;">${display}</li>`;
-              })
-              .join("");
-
-            this._panel.webview.postMessage({
-              command: "renderExpand",
-              html: items,
-              index: message.index,
-            });
-
-            break;
-          }
-          case "createNewFile": {
-            const { path: relativePath, type } = message;
-            let basePath: string;
-
-            if (type === vscode.FileType.Directory) {
-              basePath = path.join(this._cwd, relativePath);
-            } else {
-              basePath = this._cwd;
-            }
-
-            const fileName = await vscode.window.showInputBox({
-              prompt: `New file in ${basePath}`,
-            });
-
-            if (fileName) {
-              const newFilePath = path.join(basePath, fileName);
-              const uri = vscode.Uri.file(newFilePath);
-
-              let exists = false;
-              try {
-                await vscode.workspace.fs.stat(uri);
-                exists = true;
-              } catch {
-                exists = false;
-              }
-
-              if (!exists) {
-                await vscode.workspace.fs.writeFile(uri, new Uint8Array());
-                this._update();
-              } else {
-                vscode.window.showErrorMessage(
-                  `File "${fileName}" already exists.`
-                );
-              }
-            }
-
-            break;
-          }
-          case "createNewDir": {
-            const { path: relativePath, type } = message;
-            let basePath: string;
-
-            if (type === vscode.FileType.Directory) {
-              basePath = path.join(this._cwd, relativePath);
-            } else {
-              basePath = this._cwd;
-            }
-
-            const dirName = await vscode.window.showInputBox({
-              prompt: `New directory in ${basePath}`,
-            });
-
-            if (dirName) {
-              const newDirPath = path.join(basePath, dirName);
-              const uri = vscode.Uri.file(newDirPath);
-
-              let exists = false;
-              try {
-                await vscode.workspace.fs.stat(uri);
-                exists = true;
-              } catch {
-                exists = false;
-              }
-
-              if (!exists) {
-                await vscode.workspace.fs.createDirectory(uri);
-                this._update();
-              } else {
-                vscode.window.showErrorMessage(
-                  `Directory "${dirName}" already exists.`
-                );
-              }
-            }
-
-            break;
-          }
-        }
-      },
+      async (message) => this._handleMessage(message),
       null,
       this._disposables
     );
@@ -251,14 +63,170 @@ export class DiredPanel {
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
   }
 
-  public dispose() {
-    DiredPanel.currentPanel = undefined;
-    this._panel.dispose();
-    while (this._disposables.length) {
-      const d = this._disposables.pop();
-      if (d) {
-        d.dispose();
+  private async _handleMessage(message: any) {
+    const target = path.join(this._cwd, message?.path || "");
+
+    switch (message.command) {
+      case "delete":
+        await this._deleteFile(target);
+        break;
+      case "open":
+        await this._openFile(target, message);
+        break;
+      case "reload":
+        this._update();
+        break;
+      case "confirmDelete":
+        await this._confirmDelete(message.path);
+        break;
+      case "requestRename":
+        await this._renameFile(message);
+        break;
+      case "expand":
+        await this._expandDirectory(message);
+        break;
+      case "createNewFile":
+        await this._createNewFile(message);
+        break;
+      case "createNewDir":
+        await this._createNewDir(message);
+        break;
+    }
+  }
+
+  private async _deleteFile(target: string) {
+    await vscode.workspace.fs.delete(vscode.Uri.file(target));
+    this._update();
+  }
+
+  private async _openFile(target: string, message: any) {
+    const { path: msgPath, cursorIndex } = message;
+    if (cursorIndex !== undefined) {
+      this._cursorMap[this._cwd] = cursorIndex;
+    }
+
+    if (msgPath === "..") {
+      this._navigateUp();
+      return;
+    }
+
+    const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target));
+    if (stat.type === vscode.FileType.Directory) {
+      this._cwd = target;
+      this._update();
+    } else {
+      vscode.commands.executeCommand("vscode.open", vscode.Uri.file(target));
+    }
+  }
+
+  private async _confirmDelete(filePath: string) {
+    const confirmed = await vscode.window.showWarningMessage(
+      `Are you sure you want to delete ${filePath}?`,
+      { modal: true },
+      "Delete"
+    );
+    if (confirmed === "Delete") {
+      await this._deleteFile(path.join(this._cwd, filePath));
+    }
+  }
+
+  private async _renameFile(message: any) {
+    const newName = await vscode.window.showInputBox({
+      prompt: `Rename ${message.path} to:`,
+      value: message.path,
+    });
+    if (newName && newName !== message.path) {
+      const oldPath = path.join(this._cwd, message.path);
+      const newPath = path.join(this._cwd, newName);
+      await vscode.workspace.fs.rename(
+        vscode.Uri.file(oldPath),
+        vscode.Uri.file(newPath)
+      );
+      this._update();
+    }
+  }
+
+  private async _expandDirectory(message: any) {
+    const absPath = path.join(this._cwd, message.path);
+    const entries = await vscode.workspace.fs.readDirectory(
+      vscode.Uri.file(absPath)
+    );
+
+    const detailed = await Promise.all(
+      entries.map(([name, type]) => getFileEntryInfo(absPath, [name, type]))
+    );
+
+    const items = this._generateFileListHtml(message.path, detailed, true);
+
+    this._panel.webview.postMessage({
+      command: "renderExpand",
+      html: items,
+      index: message.index,
+    });
+  }
+
+  private async _createNewFile(message: any) {
+    const { path: relativePath, type } = message;
+    let basePath =
+      type === vscode.FileType.Directory
+        ? path.join(this._cwd, relativePath)
+        : this._cwd;
+
+    const fileName = await vscode.window.showInputBox({
+      prompt: `New file in ${basePath}`,
+    });
+
+    if (fileName) {
+      const newFilePath = path.join(basePath, fileName);
+      const uri = vscode.Uri.file(newFilePath);
+      if (await this._fileExists(uri)) {
+        vscode.window.showErrorMessage(`File "${fileName}" already exists.`);
+      } else {
+        await vscode.workspace.fs.writeFile(uri, new Uint8Array());
+        this._update();
       }
+    }
+  }
+
+  private async _createNewDir(message: any) {
+    const { path: relativePath, type } = message;
+    let basePath =
+      type === vscode.FileType.Directory
+        ? path.join(this._cwd, relativePath)
+        : this._cwd;
+
+    const dirName = await vscode.window.showInputBox({
+      prompt: `New directory in ${basePath}`,
+    });
+
+    if (dirName) {
+      const newDirPath = path.join(basePath, dirName);
+      const uri = vscode.Uri.file(newDirPath);
+      if (await this._fileExists(uri)) {
+        vscode.window.showErrorMessage(
+          `Directory "${dirName}" already exists.`
+        );
+      } else {
+        await vscode.workspace.fs.createDirectory(uri);
+        this._update();
+      }
+    }
+  }
+
+  private async _fileExists(uri: vscode.Uri): Promise<boolean> {
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async _navigateUp() {
+    const root = vscode.workspace.workspaceFolders?.[0].uri.fsPath || "";
+    if (this._cwd !== root) {
+      this._cwd = path.dirname(this._cwd);
+      this._update();
     }
   }
 
@@ -266,30 +234,31 @@ export class DiredPanel {
     const entries = await vscode.workspace.fs.readDirectory(
       vscode.Uri.file(this._cwd)
     );
-    const detailed = await Promise.all(
-      entries.map(([name, type]) => getFileEntryInfo(this._cwd, [name, type]))
-    );
 
-    const html = this._getHtml(detailed, this._cwd);
-    this._panel.webview.html = html;
+    const withSpecialDirs: [string, vscode.FileType][] = [
+      [".", vscode.FileType.Directory],
+      ["..", vscode.FileType.Directory],
+      ...entries,
+    ];
+
+    const detailed = await Promise.all(
+      withSpecialDirs.map(([name, type]) => {
+        return getFileEntryInfo(this._cwd, [name, type]);
+      })
+    );
+    this._panel.webview.html = this._getHtml(detailed);
   }
 
-  private _getHtml(
-    files: {
-      name: string;
-      type: vscode.FileType;
-      mode: string;
-      size: string;
-      mtime: string;
-    }[],
-    cwd: string
+  private _generateFileListHtml(
+    parent: string,
+    files: any[],
+    showDecorator: boolean = false
   ): string {
-    const list = files
-      .map(({ name, type, mode, size, mtime }) => {
-        const typeChar = type === vscode.FileType.Directory ? "d" : "-";
-        const display = `${typeChar}${mode.padEnd(
-          4
-        )} ${size} ${mtime}          ${name}`;
+    return files
+      .map(({ name, type, mode, size, mtime }, idx) => {
+        const display = `${mode.padEnd(4)} ${size} ${mtime}        ${
+          showDecorator ? (idx === files.length - 1 ? "└── " : "├── ") : ""
+        }${name}`;
         const isHidden = name.startsWith(".");
         const className = [
           isHidden ? "hidden-file" : "",
@@ -297,16 +266,18 @@ export class DiredPanel {
         ]
           .filter(Boolean)
           .join(" ");
-
-        return `<li tabindex="0" data-path="${name}" data-type="${type}" class="${className}">${display}<ul class="nested" style="display: none;"></ul></li>`;
+        return `<li tabindex="0" data-path="${
+          showDecorator ? parent + "/" : ""
+        }${name}" data-type="${type}" class="${className}">${display}<ul class="nested" style="display: none;"></ul></li>`;
       })
       .join("");
+  }
 
+  private _getHtml(files: any[]): string {
+    const list = this._generateFileListHtml(this._cwd, files);
     const focusedFileName = this._focusedFile
       ? path.basename(this._focusedFile)
       : null;
-
-    const savedIndex = this._cursorMap[cwd] ?? 0;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -317,15 +288,35 @@ export class DiredPanel {
     body { font-family: monospace; padding: 10px; }
     li:focus { outline: none; background: #ddd; }
     ul { list-style: none; padding: 0; }
-    li { padding: 2px 4px; cursor: pointer; white-space: pre; color: black; font-weight: normal; }
+    li { padding: 4px 0px; cursor: pointer; white-space: pre; color: black; font-weight: normal; }
     li.active { background: #ddd; }
-    .nested {}
+    .nested li { padding: 0; }
     .hidden-file { color: green; }
-    .directory { color: blue; font-weight: 700; }
+    .directory { color: blue; }
+    #search-bar {
+      z-index: 999;
+      outline: 1px solid black;
+      border-radius: 5px;
+    }
+    #search-input {
+      background: #EFC;
+      color: black;
+      border: none;
+      outline: none;
+    }
+
   </style>
 </head>
 <body>
-  <h2>${cwd}</h2>
+  <h2>${this._cwd}</h2>
+  <div id="search-bar" style="display: none; position: sticky; top: 0; padding: 5px;">
+    <input
+      type="text"
+      id="search-input"
+      placeholder="Search files..."
+      style="width: 100%; padding: 4px; font-size: 14px;"
+    />
+  </div>
   <ul id="file-list">${list}</ul>
   <script>
     window.addEventListener('message', (event) => {
@@ -341,9 +332,14 @@ export class DiredPanel {
     });
 
     const vscode = acquireVsCodeApi();
-    const list = document.querySelectorAll('#file-list li');
-    let index = ${savedIndex} || 0;
 
+    function getVisibleItems() {
+      return Array.from(document.querySelectorAll('li[data-path]'))
+        .filter(item => item.style.display !== 'none');
+    }
+
+    const list = getVisibleItems();
+    let index = 0;
     const focusedFile = ${JSON.stringify(focusedFileName)};
     if (focusedFile) {
       for (let i = 0; i < list.length; i++) {
@@ -354,62 +350,177 @@ export class DiredPanel {
       }
     }
 
-    function focusItem(i) {
-      list.forEach((el) => el.classList.remove('active'));
-      if (list[i]) {
-        list[i].focus();
-        list[i].classList.add('active');
-        index = i;
-      }
-    }
+    // list?.[index].focus();
 
-    function openPath(path, index) {
-      vscode.postMessage({ command: 'open', path, cursorIndex: index });
+    function focusItem(i) {
+      const list = getVisibleItems()
+      list.forEach((el) => el.classList.remove('active'));
+      list?.[i].classList.add('active');
+      list?.[i].focus();
     }
 
     focusItem(index);
 
+    function openPath(path) {
+      vscode.postMessage({ command: 'open', path, cursorIndex: index });
+    }
+
+    function fuzzyMatch(query, text) {
+      query = query.toLowerCase();
+      text = text.toLowerCase();
+
+      let qIndex = 0;
+      for (let t of text) {
+        if (t === query[qIndex]) qIndex++;
+        if (qIndex === query.length) return true;
+      }
+      return false;
+    }
+
+    const searchBar = document.getElementById('search-bar');
+    const searchInput = document.getElementById('search-input');
+    const fileItems = document.querySelectorAll('#file-list > li');
+
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'j') {
+      const isInSearch = document.activeElement === document.getElementById('search-input');
+      const list = getVisibleItems();
+
+      if (isInSearch) {
+        if (e.ctrlKey && (e.key === 'n' || e.key === 'p')) {
+          e.preventDefault();
+          if (e.key === 'n') {
+            index = (index + 1) % list.length;
+          } else if (e.key === 'p') {
+            index = (index - 1 + list.length) % list.length;
+          }
+          focusItem(index);
+          return;
+        }
+        if (e.key === 'Enter') {
+          openPath(getVisibleItems()?.[index].dataset.path);
+          searchBar.style.display = 'none';
+          searchInput.value = '';
+          filter('');
+          document.activeElement.blur();
+          return;
+        }
+        // While search is active, only handle ESC
+        if (e.key === 'Escape') {
+          searchBar.style.display = 'none';
+          searchInput.value = '';
+          filter('');
+          document.activeElement.blur();
+        }
+        return;
+      }
+
+      const active = list[index];
+      const path = active?.dataset.path;
+      const type = parseInt(active?.dataset.type || "0", 10);
+
+      const moveDown = () => {
         index = (index + 1) % list.length;
         focusItem(index);
-      } else if (e.key === 'k') {
+      };
+
+      const moveUp = () => {
         index = (index - 1 + list.length) % list.length;
         focusItem(index);
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        const path = list[index].dataset.path;
-        vscode.postMessage({ command: 'confirmDelete', path });
-      } else if (e.key === 'r') {
-        const oldPath = list[index].dataset.path;
-        vscode.postMessage({ command: 'requestRename', path: oldPath });
-      } else if (e.key === 'Enter') {
-        const path = list[index].dataset.path;
-        openPath(path, index);
-      } else if (e.key === 'g') {
-        vscode.postMessage({ command: 'reload' });
-      } else if (e.key === '-') {
-        openPath('..', index);
-      } else if (e.key === '+') {
-        const active = list[index];
-        const type = parseInt(active.dataset.type, 10);
-        const path = active.dataset.path;
-        vscode.postMessage({ command: 'createNewFile', path, type });
-      } else if (e.key === ' ') {
-        const li = list[index];
-        const path = li.dataset.path;
-        const type = li.dataset.type;
-        if (type === String(2)) {
-          vscode.postMessage({ command: 'expand', path, index });
-        }
-      } else if (e.key === 'd') {
-        const active = list[index];
-        const type = parseInt(active.dataset.type, 10);
-        const path = active.dataset.path;
-        vscode.postMessage({ command: 'createNewDir', path, type });
+      };
+
+      switch (e.key) {
+        case 'j':
+          e.preventDefault();
+          moveDown();
+          break;
+        case 'k':
+          e.preventDefault();
+          moveUp();
+          break;
+        case 'n':
+        case 'N':
+          if (e.ctrlKey) {
+            e.preventDefault();
+            moveDown();
+          }
+          break;
+        case 'p':
+        case 'P':
+          if (e.ctrlKey) {
+            e.preventDefault();
+            moveUp();
+          }
+          break;
+        case 'Delete':
+        case 'Backspace':
+          vscode.postMessage({ command: 'confirmDelete', path });
+          break;
+        case 'r':
+          vscode.postMessage({ command: 'requestRename', path });
+          break;
+        case 'Enter':
+          openPath(path);
+          break;
+        case 'g':
+          vscode.postMessage({ command: 'reload' });
+          break;
+        case '-':
+          openPath('..');
+          break;
+        case '+':
+          vscode.postMessage({ command: 'createNewFile', path, type });
+          break;
+        case ' ':
+          if (String(type) === String(2)) {
+            vscode.postMessage({ command: 'expand', path, index });
+          }
+          break;
+        case 'd':
+          vscode.postMessage({ command: 'createNewDir', path, type });
+          break;
+        case '/':
+          e.preventDefault();
+          searchBar.style.display = 'block';
+          searchInput.focus();
+          break;
+        case 'Escape':
+          if (searchBar.style.display === 'block') {
+            searchBar.style.display = 'none';
+            searchInput.value = '';
+            filter('');
+          }
+          break;
       }
     });
+
+    searchInput.addEventListener('input', (e) => {
+      const query = searchInput.value.trim();
+      filter(query);
+    });
+
+    function filter(query) {
+      const items = document.querySelectorAll('li[data-path]');
+      items.forEach((item) => {
+        const name = item.dataset.path;
+        item.style.display = (!query || fuzzyMatch(query, name)) ? '' : 'none';
+      });
+
+      index = 0;
+      focusItem(index);
+    }
   </script>
 </body>
 </html>`;
+  }
+
+  public dispose() {
+    DiredPanel.currentPanel = undefined;
+    this._panel.dispose();
+    while (this._disposables.length) {
+      const d = this._disposables.pop();
+      if (d) {
+        d.dispose();
+      }
+    }
   }
 }
