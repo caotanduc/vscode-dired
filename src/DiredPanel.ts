@@ -3,7 +3,7 @@ import * as path from "path";
 import { FileEntryInfo, getFileEntryInfo } from "./utils/getFileEntryInfo";
 import { getNonce } from "./utils/getNonce";
 import * as fs from "fs/promises";
-import { getSymlinkTarget } from "./utils/getSymLinkTarget";
+import { getSymlinkTarget } from "./utils/getSymlinkTarget";
 
 export class DiredPanel {
   public static currentPanel: DiredPanel | undefined;
