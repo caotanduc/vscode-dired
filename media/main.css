@@ -1,0 +1,42 @@
+body {
+  font-family: monospace;
+  padding: 10px;
+}
+li:focus {
+  outline: none;
+  background: #ddd;
+}
+ul {
+  list-style: none;
+  padding: 0;
+}
+li {
+  padding: 4px 0px;
+  cursor: pointer;
+  white-space: pre;
+  color: black;
+  font-weight: normal;
+}
+li.active {
+  background: #ddd;
+}
+.nested li {
+  padding: 0;
+}
+.hidden-file {
+  color: green;
+}
+.directory {
+  color: blue;
+}
+#search-bar {
+  z-index: 999;
+  outline: 1px solid black;
+  border-radius: 5px;
+}
+#search-input {
+  background: #efc;
+  color: black;
+  border: none;
+  outline: none;
+}
