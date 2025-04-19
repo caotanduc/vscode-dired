@@ -95,7 +95,9 @@ export class DiredPanel {
   }
 
   private async _deleteFile(target: string) {
-    await vscode.workspace.fs.delete(vscode.Uri.file(target));
+    await vscode.workspace.fs.delete(vscode.Uri.file(target), {
+      recursive: true,
+    });
     this._update();
   }
 
@@ -142,6 +144,7 @@ export class DiredPanel {
         vscode.Uri.file(oldPath),
         vscode.Uri.file(newPath)
       );
+      this._focusedFile = newPath;
       this._update();
     }
   }
@@ -167,10 +170,9 @@ export class DiredPanel {
 
   private async _createNewFile(message: any) {
     const { path: relativePath, type } = message;
+    const joinPath = path.join(this._cwd, relativePath);
     let basePath =
-      type === vscode.FileType.Directory
-        ? path.join(this._cwd, relativePath)
-        : this._cwd;
+      type === vscode.FileType.Directory ? joinPath : path.dirname(joinPath);
 
     const fileName = await vscode.window.showInputBox({
       prompt: `New file in ${basePath}`,
@@ -183,6 +185,7 @@ export class DiredPanel {
         vscode.window.showErrorMessage(`File "${fileName}" already exists.`);
       } else {
         await vscode.workspace.fs.writeFile(uri, new Uint8Array());
+        this._focusedFile = newFilePath;
         this._update();
       }
     }
@@ -190,10 +193,10 @@ export class DiredPanel {
 
   private async _createNewDir(message: any) {
     const { path: relativePath, type } = message;
+
+    const joinPath = path.join(this._cwd, relativePath);
     let basePath =
-      type === vscode.FileType.Directory
-        ? path.join(this._cwd, relativePath)
-        : this._cwd;
+      type === vscode.FileType.Directory ? joinPath : path.dirname(joinPath);
 
     const dirName = await vscode.window.showInputBox({
       prompt: `New directory in ${basePath}`,
@@ -208,6 +211,7 @@ export class DiredPanel {
         );
       } else {
         await vscode.workspace.fs.createDirectory(uri);
+        this._focusedFile = newDirPath;
         this._update();
       }
     }
@@ -237,7 +241,6 @@ export class DiredPanel {
 
     const withSpecialDirs: [string, vscode.FileType][] = [
       [".", vscode.FileType.Directory],
-      ["..", vscode.FileType.Directory],
       ...entries,
     ];
 
@@ -254,10 +257,21 @@ export class DiredPanel {
     files: any[],
     showDecorator: boolean = false
   ): string {
+    if (parent.startsWith(this._cwd)) {
+      parent = parent.slice(this._cwd.length);
+    }
+    const indentSpace = parent
+      ? Math.max(parent.split("/").length - 1, 0) * 4 + 4
+      : 0;
     return files
       .map(({ name, type, mode, size, mtime }, idx) => {
         const display = `${mode.padEnd(4)} ${size} ${mtime}        ${
-          showDecorator ? (idx === files.length - 1 ? "└── " : "├── ") : ""
+          showDecorator
+            ? (idx === files.length - 1 ? "└── " : "├── ").padStart(
+                indentSpace,
+                " "
+              )
+            : ""
         }${name}`;
         const isHidden = name.startsWith(".");
         const className = [
@@ -275,9 +289,12 @@ export class DiredPanel {
 
   private _getHtml(files: any[]): string {
     const list = this._generateFileListHtml(this._cwd, files);
+    console.log(this._focusedFile);
     const focusedFileName = this._focusedFile
       ? path.basename(this._focusedFile)
       : null;
+
+    console.log(focusedFileName);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -319,18 +336,6 @@ export class DiredPanel {
   </div>
   <ul id="file-list">${list}</ul>
   <script>
-    window.addEventListener('message', (event) => {
-      const { command, html, index } = event.data;
-      if (command === 'renderExpand') {
-        const li = list[index];
-        const nested = li.querySelector('.nested');
-        if (nested) {
-          nested.innerHTML = html;
-          nested.style.display = 'block';
-        }
-      }
-    });
-
     const vscode = acquireVsCodeApi();
 
     function getVisibleItems() {
@@ -339,6 +344,26 @@ export class DiredPanel {
     }
 
     const list = getVisibleItems();
+
+    window.addEventListener('message', (event) => {
+      const { command, html, index } = event.data;
+      const list = getVisibleItems();
+      if (command === 'renderExpand') {
+        const li = list[index];
+        const nested = li.querySelector('.nested');
+        if (nested) {
+          const isVisible = nested.style.display === 'block';
+          if (isVisible) {
+            nested.innerHTML = '';
+            nested.style.display = 'none';
+          } else {
+            nested.innerHTML = html;
+            nested.style.display = 'block';
+          }
+        }
+      }
+    });
+
     let index = 0;
     const focusedFile = ${JSON.stringify(focusedFileName)};
     if (focusedFile) {
@@ -350,13 +375,13 @@ export class DiredPanel {
       }
     }
 
-    // list?.[index].focus();
+    list?.[index].focus();
+    list?.[index].blur();
 
     function focusItem(i) {
       const list = getVisibleItems()
       list.forEach((el) => el.classList.remove('active'));
       list?.[i].classList.add('active');
-      list?.[i].focus();
     }
 
     focusItem(index);
