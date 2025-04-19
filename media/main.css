@@ -23,11 +23,11 @@ li.active {
 .nested li {
   padding: 0;
 }
-.hidden-file {
-  color: green;
-}
 .directory {
   color: blue;
+}
+.symlink {
+  color: green;
 }
 #search-bar {
   z-index: 999;

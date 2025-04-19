@@ -102,8 +102,8 @@
 		}
 
 		const active = list[index];
-		const path = active?.dataset.path;
-		const type = parseInt(active?.dataset.type || "0", 10);
+		const path = active?.dataset.link || active?.dataset.path;
+		const type = active?.dataset.type;
 
 		const moveDown = () => {
 			index = (index + 1) % list.length;
@@ -158,7 +158,7 @@
 				vscode.postMessage({ command: 'createNewFile', path, type });
 				break;
 			case ' ':
-				if (String(type) === String(2)) {
+				if (type === "directory") {
 					vscode.postMessage({ command: 'expand', path, index });
 				}
 				break;

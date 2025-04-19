@@ -2,12 +2,13 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { formatMode } from "./formatMode";
 import { humanFileSize } from "./humanFileSize";
-import { formatDate } from "./formatDate"; // you’ll need to create this
-import { FileType } from "vscode";
+import { formatDate } from "./formatDate";
 
 export interface FileEntryInfo {
   name: string;
-  type: FileType;
+  isFile: boolean;
+  isDirectory: boolean;
+  isSymbolicLink: boolean;
   mode: string;
   size: string;
   mtime: string;
@@ -15,14 +16,16 @@ export interface FileEntryInfo {
 
 export async function getFileEntryInfo(
   cwd: string,
-  entry: [string, FileType]
+  fileName: string
 ): Promise<FileEntryInfo> {
-  const [name, type] = entry;
-  const filePath = path.join(cwd, name);
-  const stat = await fs.stat(filePath);
+  const filePath = path.join(cwd, fileName);
+  const stat = await fs.lstat(filePath);
+
   return {
-    name,
-    type,
+    name: fileName,
+    isFile: stat.isFile(),
+    isDirectory: stat.isDirectory(),
+    isSymbolicLink: stat.isSymbolicLink(),
     mode: formatMode(stat.mode),
     size: humanFileSize(stat.size),
     mtime: formatDate(stat.mtime),

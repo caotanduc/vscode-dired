@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { getFileEntryInfo } from "./utils/getFileEntryInfo";
+import { FileEntryInfo, getFileEntryInfo } from "./utils/getFileEntryInfo";
 import { getNonce } from "./utils/getNonce";
+import * as fs from "fs/promises";
+import { getSymlinkTarget } from "./utils/getSymLinkTarget";
 
 export class DiredPanel {
   public static currentPanel: DiredPanel | undefined;
@@ -108,17 +110,19 @@ export class DiredPanel {
       this._cursorMap[this._cwd] = cursorIndex;
     }
 
-    if (msgPath === "..") {
-      this._navigateUp();
-      return;
-    }
-
-    const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target));
-    if (stat.type === vscode.FileType.Directory) {
-      this._cwd = target;
-      this._update();
-    } else {
-      vscode.commands.executeCommand("vscode.open", vscode.Uri.file(target));
+    try {
+      const stat = await fs.lstat(target);
+      if (stat.isDirectory()) {
+        this._cwd = target;
+        this._update();
+      } else {
+        vscode.commands.executeCommand("vscode.open", vscode.Uri.file(target));
+      }
+    } catch {
+      vscode.commands.executeCommand(
+        "vscode.open",
+        vscode.Uri.file(message?.path)
+      );
     }
   }
 
@@ -157,7 +161,7 @@ export class DiredPanel {
     );
 
     const detailed = await Promise.all(
-      entries.map(([name, type]) => getFileEntryInfo(absPath, [name, type]))
+      entries.map(([name, _]) => getFileEntryInfo(absPath, name))
     );
 
     const items = this._generateFileListHtml(message.path, detailed, true);
@@ -246,8 +250,8 @@ export class DiredPanel {
     ];
 
     const detailed = await Promise.all(
-      withSpecialDirs.map(([name, type]) => {
-        return getFileEntryInfo(this._cwd, [name, type]);
+      withSpecialDirs.map(([name, _]) => {
+        return getFileEntryInfo(this._cwd, name);
       })
     );
     this._panel.webview.html = this._getHtml(detailed);
@@ -255,7 +259,7 @@ export class DiredPanel {
 
   private _generateFileListHtml(
     parent: string,
-    files: any[],
+    files: FileEntryInfo[],
     showDecorator: boolean = false
   ): string {
     if (parent.startsWith(this._cwd)) {
@@ -265,26 +269,38 @@ export class DiredPanel {
       ? Math.max(parent.split("/").length - 1, 0) * 4 + 4
       : 0;
     return files
-      .map(({ name, type, mode, size, mtime }, idx) => {
-        const display = `${mode.padEnd(4)} ${size} ${mtime}        ${
-          showDecorator
-            ? (idx === files.length - 1 ? "└── " : "├── ").padStart(
-                indentSpace,
-                " "
-              )
-            : ""
-        }${name}`;
-        const isHidden = name.startsWith(".");
-        const className = [
-          isHidden ? "hidden-file" : "",
-          type === vscode.FileType.Directory ? "directory" : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        return `<li tabindex="0" data-path="${
-          showDecorator ? parent + "/" : ""
-        }${name}" data-type="${type}" class="${className}">${display}<ul class="nested" style="display: none;"></ul></li>`;
-      })
+      .map(
+        (
+          { name, isFile, isDirectory, isSymbolicLink, mode, size, mtime },
+          idx
+        ) => {
+          let linkPath = "";
+          if (isSymbolicLink) {
+            linkPath = getSymlinkTarget(path.join(this._cwd, name));
+          }
+
+          const display = `${mode.padEnd(4)} ${size} ${mtime}        ${
+            showDecorator
+              ? (idx === files.length - 1 ? "└── " : "├── ").padStart(
+                  indentSpace,
+                  " "
+                )
+              : ""
+          }${name}${linkPath ? ` -> ${linkPath}` : ""}`;
+
+          const className = [
+            isDirectory ? "directory" : "",
+            isSymbolicLink ? "symlink" : "",
+          ].join(" ");
+          return `<li tabindex="0" data-path="${
+            showDecorator ? parent + "/" : ""
+          }${name}" data-type="${
+            isDirectory ? "directory" : isSymbolicLink ? "symlink" : "file"
+          }" data-link="${
+            isSymbolicLink ? linkPath : ""
+          }" class="${className}">${display}<ul class="nested" style="display: none;"></ul></li>`;
+        }
+      )
       .join("");
   }
 
