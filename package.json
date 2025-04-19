@@ -1,6 +1,10 @@
 {
   "name": "dired",
   "displayName": "dired",
+  "publisher": "tanduc",
+  "repository": {
+    "url": "https://github.com/caotanduc/vscode-dired"
+  },
   "description": "Emacs Dired experience in VSCode",
   "version": "0.0.1",
   "engines": {
