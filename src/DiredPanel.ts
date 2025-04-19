@@ -289,12 +289,9 @@ export class DiredPanel {
 
   private _getHtml(files: any[]): string {
     const list = this._generateFileListHtml(this._cwd, files);
-    console.log(this._focusedFile);
     const focusedFileName = this._focusedFile
       ? path.basename(this._focusedFile)
       : null;
-
-    console.log(focusedFileName);
 
     return `<!DOCTYPE html>
 <html lang="en">

@@ -9,13 +9,21 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onWebviewPanel:dired"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "vscode-dired-mode.open",
-        "title": "Open Dired Explorer"
+        "command": "vscode-dired.open",
+        "title": "Open Dired"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vscode-dired.open",
+        "key": "ctrl+x d"
       }
     ]
   },
@@ -39,7 +47,6 @@
     "@vscode/test-cli": "^0.0.9",
     "@vscode/test-electron": "^2.4.0",
     "eslint": "^8.57.0",
-    "stat-mode": "^1.0.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.4.5",
     "webpack": "^5.91.0",
