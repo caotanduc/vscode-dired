@@ -159,9 +159,9 @@ export class DiredPanel {
     const entries = await vscode.workspace.fs.readDirectory(
       vscode.Uri.file(absPath)
     );
-
+    const fileNames = entries.map(([name]) => name);
     const detailed = await Promise.all(
-      entries.map(([name, _]) => getFileEntryInfo(absPath, name))
+      fileNames.map((name) => getFileEntryInfo(absPath, name))
     );
 
     const items = this._generateFileListHtml(message.path, detailed, true);
@@ -176,8 +176,7 @@ export class DiredPanel {
   private async _createNewFile(message: any) {
     const { path: relativePath, type } = message;
     const joinPath = path.join(this._cwd, relativePath);
-    let basePath =
-      type === vscode.FileType.Directory ? joinPath : path.dirname(joinPath);
+    let basePath = type === "directory" ? joinPath : path.dirname(joinPath);
 
     const fileName = await vscode.window.showInputBox({
       prompt: `New file in ${basePath}`,
@@ -200,8 +199,7 @@ export class DiredPanel {
     const { path: relativePath, type } = message;
 
     const joinPath = path.join(this._cwd, relativePath);
-    let basePath =
-      type === vscode.FileType.Directory ? joinPath : path.dirname(joinPath);
+    let basePath = type === "directory" ? joinPath : path.dirname(joinPath);
 
     const dirName = await vscode.window.showInputBox({
       prompt: `New directory in ${basePath}`,
@@ -244,13 +242,11 @@ export class DiredPanel {
       vscode.Uri.file(this._cwd)
     );
 
-    const withSpecialDirs: [string, vscode.FileType][] = [
-      [".", vscode.FileType.Directory],
-      ...entries,
-    ];
+    const fileNames = entries.map(([name]) => name);
+    const withSpecialDirs = [".", ...fileNames];
 
     const detailed = await Promise.all(
-      withSpecialDirs.map(([name, _]) => {
+      withSpecialDirs.map((name) => {
         return getFileEntryInfo(this._cwd, name);
       })
     );
